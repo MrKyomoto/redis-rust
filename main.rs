@@ -1,4 +1,17 @@
-use std::io::{self, BufRead, Write};
+use std::{
+    collections::HashMap,
+    io::{self, BufRead, Write},
+};
+
+type CmdHandler = fn(&[String]) -> String;
+
+fn build_dispatch_table() -> HashMap<&'static str, CmdHandler> {
+    let mut handlers: HashMap<&'static str, CmdHandler> = HashMap::new();
+    handlers.insert("PING", cmd_ping);
+    handlers.insert("ECHO", cmd_echo);
+
+    handlers
+}
 
 fn parse_args(line: &str) -> Vec<String> {
     let mut args = Vec::new();
@@ -28,19 +41,31 @@ fn encode_bulk_string(s: &str) -> String {
 }
 
 fn handle_command(args: &[String]) -> String {
+    let table = build_dispatch_table();
     let cmd = args[0].to_uppercase();
     let rest_args = &args[1..];
 
-    match cmd.as_str() {
-        "PING" => {
-            if !rest_args.is_empty() {
-                let first_arg = rest_args.first().unwrap();
-                format!("${}\r\n{}\r\n", first_arg.len(), first_arg,)
-            } else {
-                format!("+PONG\r\n")
-            }
-        }
-        _ => format!("-ERR unknown command\r\n"),
+    match table.get(cmd.as_str()) {
+        Some(handler) => handler(rest_args),
+        None => format!("-ERR unknown command\r\n"),
+    }
+}
+
+fn cmd_ping(args: &[String]) -> String {
+    if !args.is_empty() {
+        let first_arg = args.first().unwrap();
+        encode_bulk_string(first_arg)
+    } else {
+        format!("+PONG\r\n")
+    }
+}
+
+fn cmd_echo(args: &[String]) -> String {
+    if !args.is_empty() {
+        let first_arg = args.first().unwrap();
+        encode_bulk_string(first_arg)
+    } else {
+        format!("+ECHO EMPTY ERROR\r\n")
     }
 }
 
