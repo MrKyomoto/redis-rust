@@ -17,7 +17,9 @@ fn parse_args(line: &str) -> Vec<String> {
             _ => current.push(ch),
         }
     }
-    if !current.is_empty() { args.push(current); }
+    if !current.is_empty() {
+        args.push(current);
+    }
     args
 }
 
@@ -27,12 +29,16 @@ fn encode_bulk_string(s: &str) -> String {
 
 fn handle_command(args: &[String]) -> String {
     let cmd = args[0].to_uppercase();
+    let rest_args = &args[1..];
 
     match cmd.as_str() {
         "PING" => {
-            // TODO: Return "+PONG\r\n" for no args
-            // TODO: Return bulk string for PING <message>
-            String::new()
+            if !rest_args.is_empty() {
+                let first_arg = rest_args.first().unwrap();
+                format!("${}\r\n{}\r\n", first_arg.len(), first_arg,)
+            } else {
+                format!("+PONG\r\n")
+            }
         }
         _ => format!("-ERR unknown command\r\n"),
     }
@@ -46,7 +52,9 @@ fn main() {
     for line in stdin.lock().lines() {
         let line = line.unwrap();
         let line = line.trim().to_string();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let args = parse_args(&line);
         let response = handle_command(&args);
         write!(out, "{}", response).unwrap();
