@@ -9,6 +9,7 @@ fn build_dispatch_table() -> HashMap<&'static str, CmdHandler> {
     let mut handlers: HashMap<&'static str, CmdHandler> = HashMap::new();
     handlers.insert("PING", cmd_ping);
     handlers.insert("ECHO", cmd_echo);
+    handlers.insert("COMMAND", cmd_command_docs);
 
     handlers
 }
@@ -36,8 +37,24 @@ fn parse_args(line: &str) -> Vec<String> {
     args
 }
 
+fn encode_simple_string(s: &str) -> String {
+    format!("+{}\r\n", s)
+}
+
+fn encode_integer(num: i32) -> String {
+    format!(":{}\r\n", num)
+}
+
+fn encode_error(msg: &str) -> String {
+    format!("-{}\r\n", msg)
+}
+
 fn encode_bulk_string(s: &str) -> String {
     format!("${}\r\n{}\r\n", s.len(), s)
+}
+
+fn encode_null_string() -> String {
+    format!("$-1\r\n")
 }
 
 fn handle_command(args: &[String]) -> String {
@@ -47,7 +64,7 @@ fn handle_command(args: &[String]) -> String {
 
     match table.get(cmd.as_str()) {
         Some(handler) => handler(rest_args),
-        None => format!("-ERR unknown command\r\n"),
+        None => format!("-ERR unknown command '{}'\r\n", cmd),
     }
 }
 
@@ -56,16 +73,25 @@ fn cmd_ping(args: &[String]) -> String {
         let first_arg = args.first().unwrap();
         encode_bulk_string(first_arg)
     } else {
-        format!("+PONG\r\n")
+        encode_simple_string("PONG")
     }
 }
 
 fn cmd_echo(args: &[String]) -> String {
     if !args.is_empty() {
+        // NOTE: 目前这里只选取了第一个arg而非整个
         let first_arg = args.first().unwrap();
         encode_bulk_string(first_arg)
     } else {
-        format!("+ECHO EMPTY ERROR\r\n")
+        encode_simple_string("ERR echo empty")
+    }
+}
+
+fn cmd_command_docs(args: &[String]) -> String {
+    if !args.is_empty() && args[0].to_uppercase() == "DOCS" {
+        encode_simple_string("OK")
+    } else {
+        encode_error("ERR subcommand not impl")
     }
 }
 
