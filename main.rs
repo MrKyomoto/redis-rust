@@ -1,9 +1,11 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     io::{self, Read, Result, Write},
 };
 
-type CmdHandler = fn(&[String], &mut Context) -> String;
+use crate::ResponseType::{BulkString, Error, Integer, NullString, SimpleString};
+
 pub struct Context {
     kv_store: HashMap<String, String>,
 }
@@ -24,117 +26,137 @@ impl Context {
     }
 }
 
-fn build_dispatch_table() -> HashMap<&'static str, CmdHandler> {
-    let mut handlers: HashMap<&'static str, CmdHandler> = HashMap::new();
-    handlers.insert("PING", cmd_ping);
-    handlers.insert("ECHO", cmd_echo);
-    handlers.insert("COMMAND", cmd_command_docs);
-    handlers.insert("SET", cmd_set);
-    handlers.insert("GET", cmd_get);
-
-    handlers
+enum ResponseType<'a> {
+    SimpleString(&'a str),
+    BulkString(&'a str),
+    NullString,
+    Integer(i64),
+    Error(&'a str),
 }
 
-fn build_cmd_arity() -> HashMap<&'static str, Vec<usize>> {
-    let mut arity = HashMap::new();
-    arity.insert("PING", vec![0_usize, 1]);
-    arity.insert("ECHO", vec![1_usize, 1]);
-    arity.insert("COMMAND", vec![1_usize, 1]);
-    arity.insert("SET", vec![2_usize, 2]);
-    arity.insert("GET", vec![1_usize, 1]);
-
-    arity
+impl<'a> Display for ResponseType<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SimpleString(s) => write!(f, "+{}\r\n", s),
+            BulkString(s) => write!(f, "${}\r\n{}\r\n", s.len(), s),
+            NullString => write!(f, "$-1\r\n"),
+            Integer(n) => write!(f, ":{}\r\n", n),
+            Error(e) => write!(f, "-{}\r\n", e),
+        }
+    }
 }
 
-fn encode_simple_string(s: &str) -> String {
-    format!("+{}\r\n", s)
-}
-
-fn encode_integer(num: i32) -> String {
-    format!(":{}\r\n", num)
-}
-
-fn encode_error(msg: &str) -> String {
-    format!("-{}\r\n", msg)
-}
-
-fn encode_bulk_string(s: &str) -> String {
-    format!("${}\r\n{}\r\n", s.len(), s)
-}
-
-fn encode_null_string() -> String {
-    format!("$-1\r\n")
-}
-
-fn dispatcher(
-    args: &[String],
-    table: &HashMap<&str, CmdHandler>,
-    arity: &HashMap<&str, Vec<usize>>,
-    ctx: &mut Context,
-) -> String {
+fn dispatcher(args: &[String], ctx: &mut Context) -> String {
     let cmd = args[0].to_uppercase();
     let rest_args = &args[1..];
 
-    match table.get(cmd.as_str()) {
-        Some(handler) => {
-            if let Some(err) = check_arity(&cmd, rest_args, &arity) {
-                return err;
-            }
+    let cmd = match &cmd[..] {
+        "PING" => Cmd::PING,
+        "ECHO" => Cmd::ECHO,
+        "COMMAND" => Cmd::COMMAND,
+        "SET" => Cmd::SET,
+        "GET" => Cmd::GET,
+        _ => return format!("-ERR unknown command '{}'\r\n", cmd),
+    };
 
-            handler(rest_args, ctx)
+    if let Some(err) = cmd.check_arity(rest_args) {
+        return err;
+    }
+
+    cmd.run(rest_args, ctx)
+}
+
+pub enum Cmd {
+    PING,
+    ECHO,
+    COMMAND,
+    SET,
+    GET,
+}
+
+impl Display for Cmd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Cmd::PING => write!(f, "PING"),
+            Cmd::ECHO => write!(f, "ECHO"),
+            Cmd::COMMAND => write!(f, "COMMAND"),
+            Cmd::SET => write!(f, "SET"),
+            Cmd::GET => write!(f, "GET"),
+        }
+    }
+}
+impl Cmd {
+    pub fn run(&self, args: &[String], ctx: &mut Context) -> String {
+        match self {
+            Cmd::PING => Self::cmd_ping(args),
+            Cmd::ECHO => Self::cmd_echo(args),
+            Cmd::COMMAND => Self::cmd_command_docs(args, ctx),
+            Cmd::SET => Self::cmd_set(args, ctx),
+            Cmd::GET => Self::cmd_get(args, ctx),
+        }
+    }
+
+    pub fn check_arity(&self, args: &[String]) -> Option<String> {
+        let cmd = self.to_string();
+        let (low, high) = self.arity();
+
+        if !(low <= args.len() && args.len() <= high) {
+            return Some(
+                ResponseType::Error(&format!(
+                    "ERR wrong number of arguments for '{}' command",
+                    cmd
+                ))
+                .to_string(),
+            );
         }
 
-        None => format!("-ERR unknown command '{}'\r\n", cmd),
-    }
-}
-
-fn check_arity(cmd: &str, args: &[String], arity: &HashMap<&str, Vec<usize>>) -> Option<String> {
-    let low = arity[cmd][0];
-    let high = arity[cmd][1];
-
-    if !(low <= args.len() && args.len() <= high) {
-        return Some(encode_error(&format!(
-            "ERR wrong number of arguments for '{}' command",
-            cmd
-        )));
+        None
     }
 
-    None
-}
-
-fn cmd_ping(args: &[String], _ctx: &mut Context) -> String {
-    if !args.is_empty() {
-        let first_arg = args.first().unwrap();
-        encode_bulk_string(first_arg)
-    } else {
-        encode_simple_string("PONG")
+    fn arity(&self) -> (usize, usize) {
+        match self {
+            Cmd::PING => (0, 1),
+            Cmd::ECHO => (1, 1),
+            Cmd::COMMAND => (1, 1),
+            Cmd::SET => (2, 2),
+            Cmd::GET => (1, 1),
+        }
     }
-}
 
-fn cmd_echo(args: &[String], _ctx: &mut Context) -> String {
-    encode_bulk_string(&args[0])
-}
-
-fn cmd_command_docs(args: &[String], _ctx: &mut Context) -> String {
-    if !args.is_empty() && args[0].to_uppercase() == "DOCS" {
-        encode_simple_string("OK")
-    } else {
-        encode_error("ERR subcommand not impl")
+    fn cmd_ping(args: &[String]) -> String {
+        if !args.is_empty() {
+            ResponseType::BulkString(&args[0]).to_string()
+        } else {
+            ResponseType::SimpleString("PONG").to_string()
+        }
     }
-}
 
-fn cmd_set(args: &[String], ctx: &mut Context) -> String {
-    let key = args[0].clone();
-    let value = args[1].clone();
-    ctx.set_val(key, value);
-    encode_simple_string("OK")
-}
+    fn cmd_echo(args: &[String]) -> String {
+        ResponseType::BulkString(&args[0]).to_string()
+    }
 
-fn cmd_get(args: &[String], ctx: &mut Context) -> String {
-    if let Some(val) = ctx.get_val(&args[0]) {
-        encode_bulk_string(val)
-    } else {
-        encode_null_string()
+    fn cmd_command_docs(args: &[String], _ctx: &mut Context) -> String {
+        if !args.is_empty() && args[0].to_uppercase() == "DOCS" {
+            ResponseType::SimpleString("OK").to_string()
+        } else {
+            ResponseType::Error("ERR subcommand not impl").to_string()
+        }
+    }
+
+    fn cmd_set(args: &[String], ctx: &mut Context) -> String {
+        let key = args[0].clone();
+        let value = args[1].clone();
+        ctx.set_val(key, value);
+
+        ResponseType::SimpleString("OK").to_string()
+    }
+
+    fn cmd_get(args: &[String], ctx: &mut Context) -> String {
+        if let Some(val) = ctx.get_val(&args[0]) {
+            ResponseType::BulkString(val).to_string()
+        } else {
+            ResponseType::NullString.to_string()
+        }
     }
 }
 
@@ -143,8 +165,6 @@ fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
-    let table = build_dispatch_table();
-    let arity = build_cmd_arity();
     let mut ctx = Context::new();
 
     loop {
@@ -153,7 +173,7 @@ fn main() {
                 if args.is_empty() {
                     continue;
                 };
-                let response = dispatcher(&args, &table, &arity, &mut ctx);
+                let response = dispatcher(&args, &mut ctx);
                 write!(out, "{}", response).unwrap();
                 out.flush().unwrap();
             }
