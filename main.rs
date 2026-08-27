@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{self, BufRead, BufReader, Bytes, Read, Result, Stdin, Write},
+    io::{self, Read, Result, Write},
 };
 
 type CmdHandler = fn(&[String], &mut Context) -> String;
@@ -186,14 +186,14 @@ fn parse_command<S: Read>(stream: &mut S) -> Result<Vec<String>> {
 
     assert_eq!(header[0], b'*');
 
-    let text = str::from_utf8(&header[1..]).unwrap();
+    let text = std::str::from_utf8(&header[1..]).unwrap();
     let n: usize = text.parse().unwrap();
 
     let mut tail = [0_u8; 2];
     for _ in 0..n {
         let bulk_header = read_line(stream)?;
         assert_eq!(bulk_header[0], b'$');
-        let bulk_text = str::from_utf8(&bulk_header[1..]).unwrap();
+        let bulk_text = std::str::from_utf8(&bulk_header[1..]).unwrap();
         let len: usize = bulk_text.parse().unwrap();
 
         // NOTE: if len == 0, vec![0_u8;]
