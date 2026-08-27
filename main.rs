@@ -56,6 +56,7 @@ fn dispatcher(args: &[String], ctx: &mut Context) -> String {
         "COMMAND" => Cmd::COMMAND,
         "SET" => Cmd::SET,
         "GET" => Cmd::GET,
+        "DBSIZE" => Cmd::DBSIZE,
         _ => return format!("-ERR unknown command '{}'\r\n", cmd),
     };
 
@@ -72,6 +73,7 @@ pub enum Cmd {
     COMMAND,
     SET,
     GET,
+    DBSIZE,
 }
 
 impl Display for Cmd {
@@ -82,6 +84,7 @@ impl Display for Cmd {
             Cmd::COMMAND => write!(f, "COMMAND"),
             Cmd::SET => write!(f, "SET"),
             Cmd::GET => write!(f, "GET"),
+            Cmd::DBSIZE => write!(f, "DBSIZE"),
         }
     }
 }
@@ -93,6 +96,7 @@ impl Cmd {
             Cmd::COMMAND => Self::cmd_command_docs(args, ctx),
             Cmd::SET => Self::cmd_set(args, ctx),
             Cmd::GET => Self::cmd_get(args, ctx),
+            Cmd::DBSIZE => Self::cmd_dbsize(args, ctx),
         }
     }
 
@@ -120,6 +124,7 @@ impl Cmd {
             Cmd::COMMAND => (1, 1),
             Cmd::SET => (2, 2),
             Cmd::GET => (1, 1),
+            Cmd::DBSIZE => (0, 0),
         }
     }
 
@@ -157,6 +162,9 @@ impl Cmd {
         } else {
             ResponseType::NullString.to_string()
         }
+    }
+    fn cmd_dbsize(args: &[String], ctx: &mut Context) -> String {
+        ResponseType::Integer(ctx.kv_store.len() as i64).to_string()
     }
 }
 
