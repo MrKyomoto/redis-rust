@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::Display,
-    io::{self, Read, Result, Write},
+    io::{self, BufRead, Read, Result, Write},
 };
 
 use crate::ResponseType::{BulkString, Error, Integer, NullString, SimpleString};
@@ -167,22 +167,61 @@ fn main() {
 
     let mut ctx = Context::new();
 
-    loop {
-        match parse_command(&mut stdin) {
-            Ok(args) => {
-                if args.is_empty() {
-                    continue;
-                };
-                let response = dispatcher(&args, &mut ctx);
-                write!(out, "{}", response).unwrap();
-                out.flush().unwrap();
+    for line in stdin.lock().lines() {
+        let line = line.unwrap();
+        let line = line.trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+
+        let args = parse_args(&line);
+        let response = dispatcher(&args, &mut ctx);
+        write!(out, "{}", response).unwrap();
+        out.flush().unwrap();
+    }
+
+    #[cfg(false)]
+    {
+        loop {
+            match parse_command(&mut stdin) {
+                Ok(args) => {
+                    if args.is_empty() {
+                        continue;
+                    };
+                    let response = dispatcher(&args, &mut ctx);
+                    write!(out, "{}", response).unwrap();
+                    out.flush().unwrap();
+                }
+                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                    break;
+                }
+                Err(_e) => return,
             }
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                break;
-            }
-            Err(_e) => return,
         }
     }
+}
+fn parse_args(line: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    for ch in line.chars() {
+        match ch {
+            '"' if !in_quotes => in_quotes = true,
+            '"' if in_quotes => in_quotes = false,
+            ' ' if !in_quotes => {
+                if !current.is_empty() {
+                    args.push(current.clone());
+                    current.clear();
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+
+    args
 }
 
 fn read_line<S: Read>(stream: &mut S) -> Result<Vec<u8>> {
