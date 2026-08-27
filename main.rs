@@ -122,7 +122,7 @@ impl Cmd {
             Cmd::PING => (0, 1),
             Cmd::ECHO => (1, 1),
             Cmd::COMMAND => (1, 1),
-            Cmd::SET => (2, 2),
+            Cmd::SET => (2, 4),
             Cmd::GET => (1, 1),
             Cmd::DBSIZE => (0, 0),
         }
@@ -149,11 +149,37 @@ impl Cmd {
     }
 
     fn cmd_set(args: &[String], ctx: &mut Context) -> String {
+        let len = args.len();
         let key = args[0].clone();
         let value = args[1].clone();
-        ctx.set_val(key, value);
 
-        ResponseType::SimpleString("OK").to_string()
+        if len == 2 {
+            ctx.set_val(key, value);
+            return ResponseType::SimpleString("OK").to_string();
+        }
+
+        // NOTE:conditional writes
+        // the doc said in real Redis `SET key val NX XX` returna synatx error
+        // and real Redis also allows 'EX/PX' alongside 'NX/XX', but i do not handle this so far
+        let flag = args[2].clone().to_uppercase();
+        if len == 4 {
+            let flag2 = args[3].clone().to_uppercase();
+            if (flag == "NX" && flag2 == "XX") || (flag == "XX" && flag2 == "NX") {
+                return ResponseType::Error("ERR NX and XX are mutually exclusive").to_string();
+            }
+        }
+        let key_exits = ctx.get_val(&key).is_some();
+
+        let response = |flag: bool| -> String {
+            if flag {
+                return ResponseType::NullString.to_string();
+            }
+
+            ctx.set_val(key, value);
+            ResponseType::SimpleString("OK").to_string()
+        };
+
+        response((flag == "NX" && key_exits) || (flag == "XX" && !key_exits))
     }
 
     fn cmd_get(args: &[String], ctx: &mut Context) -> String {
