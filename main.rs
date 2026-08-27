@@ -57,6 +57,10 @@ fn dispatcher(args: &[String], ctx: &mut Context) -> String {
         "SET" => Cmd::SET,
         "GET" => Cmd::GET,
         "DBSIZE" => Cmd::DBSIZE,
+        "INCR" => Cmd::INCR,
+        "DECR" => Cmd::DECR,
+        "INCRBY" => Cmd::INCRBY,
+        "DECRBY" => Cmd::DECRBY,
         _ => return format!("-ERR unknown command '{}'\r\n", cmd),
     };
 
@@ -74,6 +78,10 @@ pub enum Cmd {
     SET,
     GET,
     DBSIZE,
+    INCR,
+    DECR,
+    INCRBY,
+    DECRBY,
 }
 
 impl Display for Cmd {
@@ -85,6 +93,10 @@ impl Display for Cmd {
             Cmd::SET => write!(f, "SET"),
             Cmd::GET => write!(f, "GET"),
             Cmd::DBSIZE => write!(f, "DBSIZE"),
+            Cmd::INCR => write!(f, "INCR"),
+            Cmd::DECR => write!(f, "DECR"),
+            Cmd::INCRBY => write!(f, "INCRBY"),
+            Cmd::DECRBY => write!(f, "DECRBY"),
         }
     }
 }
@@ -96,7 +108,11 @@ impl Cmd {
             Cmd::COMMAND => Self::cmd_command_docs(args, ctx),
             Cmd::SET => Self::cmd_set(args, ctx),
             Cmd::GET => Self::cmd_get(args, ctx),
-            Cmd::DBSIZE => Self::cmd_dbsize(args, ctx),
+            Cmd::DBSIZE => Self::cmd_dbsize(ctx),
+            Cmd::INCR => Self::cmd_incr(args, ctx, 1),
+            Cmd::DECR => Self::cmd_decr(args, ctx, -1),
+            Cmd::INCRBY => Self::cmd_incrby(args, ctx),
+            Cmd::DECRBY => Self::cmd_decrby(args, ctx),
         }
     }
 
@@ -125,6 +141,10 @@ impl Cmd {
             Cmd::SET => (2, 4),
             Cmd::GET => (1, 1),
             Cmd::DBSIZE => (0, 0),
+            Cmd::INCR => (1, 1),
+            Cmd::DECR => (1, 1),
+            Cmd::INCRBY => (2, 2),
+            Cmd::DECRBY => (2, 2),
         }
     }
 
@@ -170,7 +190,7 @@ impl Cmd {
         }
         let key_exits = ctx.get_val(&key).is_some();
 
-        let response = |flag: bool| -> String {
+        let not_set_val = |flag: bool| -> String {
             if flag {
                 return ResponseType::NullString.to_string();
             }
@@ -179,7 +199,7 @@ impl Cmd {
             ResponseType::SimpleString("OK").to_string()
         };
 
-        response((flag == "NX" && key_exits) || (flag == "XX" && !key_exits))
+        not_set_val((flag == "NX" && key_exits) || (flag == "XX" && !key_exits))
     }
 
     fn cmd_get(args: &[String], ctx: &mut Context) -> String {
@@ -189,8 +209,41 @@ impl Cmd {
             ResponseType::NullString.to_string()
         }
     }
-    fn cmd_dbsize(args: &[String], ctx: &mut Context) -> String {
+    fn cmd_dbsize(ctx: &mut Context) -> String {
         ResponseType::Integer(ctx.kv_store.len() as i64).to_string()
+    }
+
+    fn cmd_incr(args: &[String], ctx: &mut Context, amount: i64) -> String {
+        let key_exists = ctx.get_val(&args[0]).is_some();
+        let val = if key_exists {
+            ctx.get_val(&args[0]).unwrap()
+        } else {
+            "0"
+        };
+        match val.parse::<i64>() {
+            Ok(n) => {
+                ctx.set_val(args[0].clone(), (n + amount).to_string());
+            }
+            Err(_) => {
+                return ResponseType::Error("ERR value is not an integer or out of range")
+                    .to_string();
+            }
+        }
+        ResponseType::Integer(ctx.get_val(&args[0]).unwrap().parse().unwrap()).to_string()
+    }
+
+    fn cmd_decr(args: &[String], ctx: &mut Context, amount: i64) -> String {
+        Self::cmd_incr(args, ctx, -1)
+    }
+
+    fn cmd_incrby(args: &[String], ctx: &mut Context) -> String {
+        let amount: i64 = args[1].parse().unwrap();
+        Self::cmd_incr(args, ctx, amount)
+    }
+
+    fn cmd_decrby(args: &[String], ctx: &mut Context) -> String {
+        let amount: i64 = args[1].parse().unwrap();
+        Self::cmd_incr(args, ctx, -amount)
     }
 }
 
