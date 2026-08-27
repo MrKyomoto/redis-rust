@@ -180,7 +180,7 @@ fn main() {
         out.flush().unwrap();
     }
 
-    #[cfg(false)]
+    #[cfg(foobar_non_exist)]
     {
         loop {
             match parse_command(&mut stdin) {
