@@ -14,6 +14,14 @@ fn build_dispatch_table() -> HashMap<&'static str, CmdHandler> {
     handlers
 }
 
+fn build_cmd_arity() -> HashMap<&'static str, Vec<usize>> {
+    let mut arity = HashMap::new();
+    arity.insert("PING", vec![0_usize, 1]);
+    arity.insert("ECHO", vec![1_usize, 1]);
+
+    arity
+}
+
 fn parse_args(line: &str) -> Vec<String> {
     let mut args = Vec::new();
     let mut current = String::new();
@@ -59,13 +67,36 @@ fn encode_null_string() -> String {
 
 fn handle_command(args: &[String]) -> String {
     let table = build_dispatch_table();
+    let arity = build_cmd_arity();
+
     let cmd = args[0].to_uppercase();
     let rest_args = &args[1..];
 
     match table.get(cmd.as_str()) {
-        Some(handler) => handler(rest_args),
+        Some(handler) => {
+            if let Some(err) = check_arity(&cmd, rest_args, &arity) {
+                return err;
+            }
+
+            handler(rest_args)
+        }
+
         None => format!("-ERR unknown command '{}'\r\n", cmd),
     }
+}
+
+fn check_arity(cmd: &str, args: &[String], arity: &HashMap<&str, Vec<usize>>) -> Option<String> {
+    let low = arity[cmd][0];
+    let high = arity[cmd][1];
+
+    if !(low <= args.len() && args.len() <= high) {
+        return Some(encode_error(&format!(
+            "ERR wrong number of arguments for '{}' command",
+            cmd
+        )));
+    }
+
+    None
 }
 
 fn cmd_ping(args: &[String]) -> String {
